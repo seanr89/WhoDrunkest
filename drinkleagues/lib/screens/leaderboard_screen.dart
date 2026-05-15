@@ -2,29 +2,98 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'log_a_pint_screen.dart';
+import '../services/database_service.dart';
+import '../services/storage_service.dart';
 
-class LeaderboardScreen extends StatelessWidget {
+class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
+
+  @override
+  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+}
+
+class _LeaderboardScreenState extends State<LeaderboardScreen> {
+  List<Map<String, dynamic>> _performers = [];
+  int _userWeeklyPints = 0;
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      final performers = await DatabaseService().getPerformers();
+      final weeklyPints = await DatabaseService().getUserWeeklyPints();
+      setState(() {
+        _performers = performers;
+        _userWeeklyPints = weeklyPints;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load leaderboard data';
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: _buildAppBar(context),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildToggleView(),
-            const SizedBox(height: 24),
-            _buildSummaryCard(),
-            const SizedBox(height: 24),
-            _buildLeaderboardHeader(),
-            const SizedBox(height: 12),
-            _buildLeaderboardList(),
-          ],
-        ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : _errorMessage != null
+              ? _buildErrorState()
+              : RefreshIndicator(
+                  onRefresh: _loadData,
+              color: AppColors.primary,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildToggleView(),
+                    const SizedBox(height: 24),
+                    _buildSummaryCard(),
+                    const SizedBox(height: 24),
+                    _buildLeaderboardHeader(),
+                    const SizedBox(height: 12),
+                    _buildLeaderboardList(),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+          const SizedBox(height: 16),
+          Text(_errorMessage!, style: AppTextStyles.bodyLg.copyWith(color: Colors.white)),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadData,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Retry'),
+          ),
+        ],
       ),
     );
   }
@@ -45,13 +114,14 @@ class LeaderboardScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: TextButton(
-            onPressed: () {
-              Navigator.push(
+            onPressed: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const LogAPintScreen(),
                 ),
               );
+              _loadData();
             },
             style: TextButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -101,6 +171,14 @@ class LeaderboardScreen extends StatelessWidget {
   }
 
   Widget _buildSummaryCard() {
+    // Calculate rank
+    int rank = 1;
+    for (var p in _performers) {
+      if (p['score'] > _userWeeklyPints) {
+        rank++;
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -122,7 +200,7 @@ class LeaderboardScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('YOUR CURRENT RANK', style: AppTextStyles.labelSm.copyWith(color: AppColors.onSurfaceVariant)),
-                  Text('#4', style: AppTextStyles.displayLg.copyWith(color: AppColors.primary)),
+                  Text('#$rank', style: AppTextStyles.displayLg.copyWith(color: AppColors.primary)),
                 ],
               ),
               Container(
@@ -138,7 +216,7 @@ class LeaderboardScreen extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Text('14 Pints This Week', style: AppTextStyles.bodyLg.copyWith(color: AppColors.onSurface)),
+              Text('$_userWeeklyPints Pints This Week', style: AppTextStyles.bodyLg.copyWith(color: AppColors.onSurface)),
               const SizedBox(width: 8),
               Row(
                 children: [
@@ -165,21 +243,74 @@ class LeaderboardScreen extends StatelessWidget {
   }
 
   Widget _buildLeaderboardList() {
+    // Merge user into performers and sort
+    final List<Map<String, dynamic>> combined = List.from(_performers);
+    combined.add({
+      'name': 'You',
+      'status': 'Pro Status',
+      'score': _userWeeklyPints,
+      'trend': 'up',
+      'trend_score': '3',
+      'img_url': 'https://lh3.googleusercontent.com/aida-public/AB6AXuBMIQK8KWbKM8Y0P4pmiJ9YkgobpLrKdUvjudHt57P6Vn3rHimnrzCBWtT8vwkHy7EwiEIixBERM5wRTSeWyQFXKAM1UBbChUKl7CwcVed6YwgbMBOVqkWuk9Lq_KgH2DNWw9rARbrGRqljQjJ2McNyDBI8nVEqkH8lwjcsfTaH7dimt1nYFBUwJq9g0tdY4G3_qwYBhA9zplLsGpYF3sdQzCjNVq_71wj1VekPO-8wooLg_I6OCRqKPqeeyKbszTCXjMCxAMGdi5mH',
+      'is_user': 1,
+    });
+    
+    combined.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceContainer,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        children: [
-          _buildLeaderboardItem(1, 'James Miller', 'The Brewmaster', '22', '2', Icons.trending_up, AppColors.primary, 'https://lh3.googleusercontent.com/aida-public/AB6AXuAxYm1Io9E4egxe-bLNXG3NBCrTIftnum8eb8EKIpw-bMOzS1AVs8WsbaA3lBRMuSlIR7ELUHDvM2eW6SbXVTyUkmu67VEz62rg-ghXb4XHpSjfRmAYP0znD4EoWDEnBATLZNBn_ESVSEm7L9EQsGs8FCIdK8JL02HzbJCZZBe0HSMN2aEyxnmitrzge299IfNs5gvPPcTZ29YU1sv1OvgsypkeaUe2yh5iJhn_9TrMI_t9_zqDJXeAZv1-SoMi_axvddGud0wSpeF_'),
-          _buildLeaderboardItem(2, 'Sarah Chen', 'Craft Enthusiast', '19', '0', Icons.trending_flat, AppColors.secondary, 'https://lh3.googleusercontent.com/aida-public/AB6AXuCMQ42nGwZaeHgf-eZfpkRBWVmUPk0CtNIFbgSc3kdjqGluB6UE1DvpVTgGYhgGZtk10443xu6jJ3arH9oHRBo_q5xIKIZqBcSIgIwcM8xsHUoqGepDz6jdO7om7C9bFpWflIuD9TUbXaotij2qlZbxdIpypS7HwwYUDKr2VwRpebL09kc7yNnxA5GpwjZT1nISjNZpNEYtpK9RJc3Q9RumpOIba-X860F5TdLsioS-pc9qV7Gf16H-CXa6v45J2W8wnlemqNHFRZCa'),
-          _buildLeaderboardItem(3, 'Marcus Thorne', 'Social Legend', '17', '1', Icons.trending_down, AppColors.tertiary, 'https://lh3.googleusercontent.com/aida-public/AB6AXuDR0j_pnjFNZPg8iXGBVChyqgxbNR0Gyy-dAzwCtTy2-XgvKt4LVoYbL--k410WcxXW2xqjG0VZKMPLQcni3r3FwjOiJihmjY_tvney3y7Zd-46FtBpSWu9J_VSL-rP5ge7buEejMLWZtzstmkKSH8sGwVyohogQ4u-UyzSC95XtFlcTXB7ILkcrjgIcb79vF5aKslQum3Ybs9QOgDcu0kJkxdsqOXlN4tziciCBhVzz97x3MoDa6KacYrXXo_4iIw0fHcVmjexvOGU', trendColor: AppColors.error),
-          _buildUserItem(),
-          _buildLeaderboardItem(5, "Liam O'Neill", 'Stout Specialist', '12', '0', Icons.trending_flat, Colors.white10, 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQ32xFG_BkqxYFdMPcgwMgYQcv7RPgC7njhjU-EUnGP4KdGSfW2OWhk_eggNwPTTpvos6UXtraaK2zCmKjrYEmcWy6LBUwqXWdo_cnHkkCbdZxfZylz4zEMJSHCl8w3m17CYbom97Rj5Ii-qW3KoY9hJRFkJrWdrNu37N3WMIlyvw46t9eXuNao3JIhsY62rzUQBD-iczMnOHEgY9s0BHBnzsJWUQVNBK_SjE0cgPEyTiPcDPPy6pgKT3WJjO04JPg3KIcF0l4NBto', badgeColor: AppColors.surfaceContainerHighest, badgeTextColor: AppColors.onSurface, isLast: true),
-        ],
+        children: combined.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+          final isLast = index == combined.length - 1;
+          
+          if (item['is_user'] == 1) {
+            return _buildUserItem(item['score'].toString(), index + 1);
+          } else {
+            return _buildLeaderboardItem(
+              index + 1,
+              item['name'],
+              item['status'],
+              item['score'].toString(),
+              item['trend_score'],
+              _getTrendIcon(item['trend']),
+              _getBorderColor(index + 1),
+              item['img_url'],
+              trendColor: item['trend'] == 'down' ? AppColors.error : null,
+              isLast: isLast,
+            );
+          }
+        }).toList(),
       ),
     );
+  }
+
+  IconData _getTrendIcon(String trend) {
+    switch (trend) {
+      case 'up':
+        return Icons.trending_up;
+      case 'down':
+        return Icons.trending_down;
+      default:
+        return Icons.trending_flat;
+    }
+  }
+
+  Color _getBorderColor(int rank) {
+    switch (rank) {
+      case 1:
+        return AppColors.primary;
+      case 2:
+        return AppColors.secondary;
+      case 3:
+        return AppColors.tertiary;
+      default:
+        return Colors.white10;
+    }
   }
 
   Widget _buildLeaderboardItem(int rank, String name, String subtitle, String score, String trendScore, IconData trendIcon, Color avatarBorder, String imgUrl, {Color? trendColor, Color? badgeColor, Color? badgeTextColor, bool isLast = false}) {
@@ -249,7 +380,7 @@ class LeaderboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildUserItem() {
+  Widget _buildUserItem(String score, int rank) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -284,7 +415,7 @@ class LeaderboardScreen extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: const Text('4', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.onSurface)),
+                  child: Text(rank.toString(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.onSurface)),
                 ),
               ),
             ],
@@ -294,7 +425,7 @@ class LeaderboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('You', style: AppTextStyles.titleMd.copyWith(color: AppColors.onSurface, fontWeight: FontWeight.bold)),
+                Text(StorageService().getUserName(), style: AppTextStyles.titleMd.copyWith(color: AppColors.onSurface, fontWeight: FontWeight.bold)),
                 Text('Pro Status', style: AppTextStyles.labelSm.copyWith(color: AppColors.primary)),
               ],
             ),
@@ -302,12 +433,12 @@ class LeaderboardScreen extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('14', style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.primary)),
+              Text(score, style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.primary)),
               Row(
                 children: [
                   const Icon(Icons.trending_up, size: 12, color: AppColors.primary),
                   const SizedBox(width: 4),
-                  Text('3', style: AppTextStyles.labelSm.copyWith(color: AppColors.primary)),
+                  Text('3', style: AppTextStyles.labelSm),
                 ],
               )
             ],

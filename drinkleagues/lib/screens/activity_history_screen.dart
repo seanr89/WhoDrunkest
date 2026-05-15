@@ -15,6 +15,7 @@ class ActivityHistoryScreen extends StatefulWidget {
 class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   List<Map<String, dynamic>> _logs = [];
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -23,11 +24,22 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   }
 
   Future<void> _loadLogs() async {
-    final logs = await DatabaseService().getLogs();
-    setState(() {
-      _logs = logs;
-      _isLoading = false;
-    });
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      final logs = await DatabaseService().getLogs();
+      setState(() {
+        _logs = logs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load activity history';
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -37,10 +49,12 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
       appBar: _buildAppBar(context),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-          : _logs.isEmpty
-              ? _buildEmptyState()
-              : RefreshIndicator(
-                  onRefresh: _loadLogs,
+          : _errorMessage != null
+              ? _buildErrorState()
+              : _logs.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: _loadLogs,
                   color: AppColors.primary,
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
@@ -54,6 +68,28 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                     ),
                   ),
                 ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+          const SizedBox(height: 16),
+          Text(_errorMessage!, style: AppTextStyles.bodyLg.copyWith(color: Colors.white)),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadLogs,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 
